@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
+from sklearn.feature_selection import RFE
 from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.metrics import recall_score, precision_score, accuracy_score, roc_auc_score, roc_curve, confusion_matrix
 pd.set_option('max_column', None)
@@ -76,6 +77,8 @@ customers_data = customers_data.merge(scaled_df, left_index=True, right_index=Tr
 y_target = customers_data.churn
 customers_data = customers_data.drop(['churn', 'customer_id', 'occupation'], axis=1)
 
+
+# Building a baseline model.
 baseline_columns = ['current_month_credit', 'previous_month_credit', 'current_balance',
     'previous_month_end_balance', 'vintage', 'occupation_retired', 'occupation_salaried', 'occupation_self_employed',
     'occupation_student']
@@ -118,12 +121,14 @@ def plot_confusion_matrix(cm, normalized=True, cmap='bone'):
             yticklabels=['Actual: No', 'Actual: Yes'], cmap=cmap)
 
 
-plot_confusion_matrix(cm, ['No', 'Yes'])
-plt.show()
+plot_confusion_matrix(cm)
 
 recall_score(y_test, y_pred)
+'''From the confusion matrix you can see that we are more focused on those that actually churn and was
+predicted as True positive and also those that churn but were predicted as false negative.
+Therefore getting a very low recall score doesn't make the model good'''
 
-# cross validation using StratifiedKFold
+# Cross validation using StratifiedKFold
 def cv_score(ml_model, rstate = 42, thres = 0.5, cols = customers_data.columns):
     i = 1
     cv_scores = []
@@ -152,5 +157,51 @@ def cv_score(ml_model, rstate = 42, thres = 0.5, cols = customers_data.columns):
 
         # calculate scores for each fold and print
         pred_values = p_values 
+        roc_score = roc_auc_score(yval, ypred_prob[:, 1])
+        recall = recall_score(yval, pred_values)
+        precision = precision_score(yval, pred_values)
+        accuracy = accuracy_score(yval, pred_values)
+        sufix = ""
+        msg = ""
+        msg += "ROC AUC SCORE: {}, Recall Score: {:.4f}, Precision Score: {:.4f}, Accuracy Score: {:.4f}".format(roc_score, \
+            recall, precision, accuracy)
+        print("{}".format(msg))
+
+        cv_scores.append(roc_score)
+        i += 1
+    
+    return cv_scores
+
+baseline_score = cv_score(LogisticRegression(), cols = baseline_columns)
+all_features_score = cv_score(LogisticRegression())
+'''It can clearly be seen that the metric scores increased as the variables increased. This tell 
+that there is still more information in the data which were not used in the baseline model.'''
             
                 
+# Using Recursive Feature Elimination or Backward Selection.
+model = LogisticRegression()
+rfe = RFE(estimator=model, n_features_to_select=1, step=1)
+rfe.fit(customers_data, y_target)
+
+ranking_cus_data = pd.DataFrame()
+ranking_cus_data['Feature_name'] = customers_data.columns
+ranking_cus_data['Rank'] = rfe.ranking_
+
+ranked = ranking_cus_data.sort_values(by=['Rank'])
+
+# Build the model using the first 15 ranked values.
+# rfe_top_15_scores = cv_score(LogisticRegression(), cols = ranked['Feature_name'][:15].values)
+'''From this my metric score increased (Recall precisely) but it is still quite low. Therefore
+working on the threshold to get a better recall since AUC-ROC depends on the predicted probabilities
+and it is not affected by the threshold.'''
+
+# Better model
+rfe_score_15 = cv_score(LogisticRegression(), cols = ranked['Feature_name'][:15].values, thres=0.14)
+
+# Comparing models for better clarification
+results_df = pd.DataFrame({"baseline": baseline_score, 'all_features': all_features_score, \
+    'rfe_score_15': rfe_score_15})
+
+results_df.plot(y=['baseline', 'all_features', 'rfe_score_15'], kind='bar')
+plt.show() 
+'''From the plot it is clearly seen that the rfe model performs better than the other model.'''
