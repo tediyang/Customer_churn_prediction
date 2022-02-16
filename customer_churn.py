@@ -5,6 +5,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import KFold, train_test_split
 from sklearn.metrics import recall_score, accuracy_score, roc_auc_score, precision_score
+pd.set_option('max_column', None)
 
 # load the data (csv file)
 customers_data = pd.read_csv('churn_prediction.csv')
@@ -43,4 +44,32 @@ customers_data['days_since_last_transaction'] = customers_data['days_since_last_
 
 # Since I'll be working with a linear model, therefore I'll convert occupation to one-hot encoded
 # features.
-customers_data = 
+customers_data = pd.concat([customers_data, pd.get_dummies(customers_data['occupation'],\
+     prefix=str('occupation'), prefix_sep='_')], axis=1)
+
+customers_data.describe()
+'''Checking the data, I observed that there are lot of outliers in the dataset especially
+when it comes to previous and current balance features.'''
+
+# using log transformation to deal with outliers.
+outlier_cols = ['customer_nw_category', 'current_balance', 'previous_month_end_balance', 'average_monthly_balance_prevQ2',
+    'average_monthly_balance_prevQ', 'current_month_credit', 'previous_month_credit', 'current_month_debit',
+    'previous_month_debit', 'current_month_balance', 'previous_month_balance']
+
+for i in outlier_cols:
+    customers_data[i] = np.log(customers_data[i] + 17000)
+
+# scale the numerical field.
+std = StandardScaler()
+scaled_data = std.fit_transform(customers_data[outlier_cols])
+scaled_df = pd.DataFrame(scaled_data, columns=outlier_cols)
+
+customers_data_cp = customers_data.copy()
+customers_data = customers_data.drop(columns= outlier_cols, axis=1)
+customers_data = customers_data.merge(scaled_df, left_index=True, right_index=True, how='left')
+
+# Drop columns that won't be needed.
+y_target = customers_data.churn
+customers_data = customers_data.drop(['churn', 'customer_id', 'occupation'], axis=1)
+
+print(customers_data.head())
