@@ -1,11 +1,13 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import KFold, train_test_split
-from sklearn.metrics import recall_score, accuracy_score, roc_auc_score, precision_score
+from sklearn.model_selection import StratifiedKFold, train_test_split
+from sklearn.metrics import recall_score, precision_score, accuracy_score, roc_auc_score, roc_curve, confusion_matrix
 pd.set_option('max_column', None)
+
 
 # load the data (csv file)
 customers_data = pd.read_csv('churn_prediction.csv')
@@ -67,9 +69,88 @@ scaled_df = pd.DataFrame(scaled_data, columns=outlier_cols)
 customers_data_cp = customers_data.copy()
 customers_data = customers_data.drop(columns= outlier_cols, axis=1)
 customers_data = customers_data.merge(scaled_df, left_index=True, right_index=True, how='left')
-
+'''For all the balance features the lower values have much higher proportion of churning customers
+   For most frequent vintage values, the churning customers are slightly higher, while for higher values
+   of vintage, we have mostly non churning customers which is in sync with the age variable '''
 # Drop columns that won't be needed.
 y_target = customers_data.churn
 customers_data = customers_data.drop(['churn', 'customer_id', 'occupation'], axis=1)
 
-print(customers_data.head())
+baseline_columns = ['current_month_credit', 'previous_month_credit', 'current_balance',
+    'previous_month_end_balance', 'vintage', 'occupation_retired', 'occupation_salaried', 'occupation_self_employed',
+    'occupation_student']
+
+customers_data_bs = customers_data[baseline_columns]
+
+# split the data into training and testing sets.
+X_train, X_test, y_train, y_test = train_test_split(customers_data_bs, y_target,\
+     test_size=0.3, random_state=42, stratify=y_target) 
+
+# instantiate and fit the model 
+model = LogisticRegression()
+model.fit(X_train, y_train)
+y_pred_prob = model.predict_proba(X_test)[:, 1]
+
+# Plottng roc_curve
+fpr, tpr, _ = roc_curve(y_test, y_pred_prob)
+auc = roc_auc_score(y_test, y_pred_prob)
+plt.figure(figsize=(7, 6))
+plt.plot(fpr, tpr, label="Validation AUC-ROC="+str(auc))
+x = np.linspace(0, 1, 1000)
+plt.plot(x, x, linestyle='-')
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.legend(loc=4)
+# plt.show()
+'''From the AUC-ROC curve interpreting the model, if I take about top 20% of the population I'll
+get more than 60% of the customer that will churn.'''
+
+# Confusion matrix
+y_pred = model.predict(X_test)
+cm = confusion_matrix(y_test, y_pred)
+
+def plot_confusion_matrix(cm, normalized=True, cmap='bone'):
+    plt.figure(figsize=[7, 6])
+    norm_cm =  cm
+    if normalized:
+        norm_cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        sns.heatmap(norm_cm, annot=cm, fmt='g', xticklabels=['Predicted: No', 'Predicted: Yes'], \
+            yticklabels=['Actual: No', 'Actual: Yes'], cmap=cmap)
+
+
+plot_confusion_matrix(cm, ['No', 'Yes'])
+plt.show()
+
+recall_score(y_test, y_pred)
+
+# cross validation using StratifiedKFold
+def cv_score(ml_model, rstate = 42, thres = 0.5, cols = customers_data.columns):
+    i = 1
+    cv_scores = []
+    cus_data = customers_data.copy()
+    cus_data = customers_data[cols]
+
+    # 5 fold cross validation stratified on the basis of target.
+    skf = StratifiedKFold(n_splits=5, random_state=rstate, shuffle=True)
+    for cus_index, test_index in skf.split(cus_data, y_target):
+        print('\n{} of kfold {}'.format(i,skf.n_splits))
+        xtrain, xval = cus_data.loc[cus_index], cus_data.loc[test_index]
+        ytrain, yval = y_target.loc[cus_index], y_target.loc[test_index] 
+
+        # instantiate model for fitting the data.
+        model = ml_model
+        model.fit(xtrain, ytrain)
+        ypred_prob = model.predict_proba(xval)
+        p_values = []
+
+        # using threshold to define the class based on probability
+        for j in ypred_prob[:, 1]:
+            if j > thres:
+                p_values.append(1)
+            else:
+                p_values.append(0)
+
+        # calculate scores for each fold and print
+        pred_values = p_values 
+            
+                
