@@ -1,6 +1,6 @@
 # # Customer Churn Prediction
 
-# Binary classication problem which involved predicting customers liable to churn or not using LogisticRegression.
+# Binary classification problem which involved predicting customers liable to churn or not using LogisticRegression.
 
 
 | Tool  |                |
